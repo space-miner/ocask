@@ -4,4 +4,8 @@
  (flags
   (-w -69)
   (-w -26))
- (libraries ocask unix))
+ (libraries ocask unix)
+ (foreign_stubs
+  (language c)
+  (names clock_time)
+  (flags :standard -lrt)))
