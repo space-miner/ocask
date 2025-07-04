@@ -63,7 +63,7 @@ module DataFile = struct
     bytes
 
   let entries_of_bytes bytes =
-    let rec aux bytes ix =
+    let rec aux bytes ix acc =
       try
         let timestamp_offset = 0 in
         let key_size_offset = 8 in
@@ -77,11 +77,12 @@ module DataFile = struct
         let value =
           Bytes.sub bytes (ix + value_offset) (Int32.to_int value_size)
         in
-        let next_ix = value_offset + Int32.to_int value_size in
-        { timestamp; key_size; value_size; key; value } :: aux bytes next_ix
-      with _ -> []
+        let next_ix = ix + value_offset + Int32.to_int value_size in
+        aux bytes next_ix
+          ({ timestamp; key_size; value_size; key; value } :: acc)
+      with _ -> acc
     in
-    aux bytes 0
+    aux bytes 0 []
 
   let entries_of_file filename = bytes_of_file filename |> entries_of_bytes
 
@@ -131,5 +132,5 @@ let () =
   let entries = [ entry1 (); entry3 (); entry1 (); entry2 (); entry2 () ] in
   List.iter (fun entry -> write_entry filename entry) entries;
   (* decode file and check if you get the correct entries back*)
-  let entries = entries_of_file filename in
-  List.iter (fun entry -> print_entry entry) entries
+  entries_of_file filename |> List.rev
+  |> List.iter (fun entry -> print_entry entry)
