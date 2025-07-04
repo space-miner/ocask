@@ -1,0 +1,7 @@
+(executable
+ (public_name ocask)
+ (name main)
+ (flags
+  (-w -69)
+  (-w -26))
+ (libraries ocask unix))
