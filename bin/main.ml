@@ -51,6 +51,6 @@ let () =
   List.iter (fun entry -> write_entry filename entry) entries_in;
   (* decode file and check if you get the correct entries back*)
   let entries_out = entries_of_file filename |> List.rev in
-  List.iter (fun entry -> print_entry entry) entries_out;
-  assert (List.for_all2 (fun e1 e2 -> equal e1 e2) entries_in entries_out);
+  List.iter (fun entry -> Printf.printf "%s\n" (show_entry entry)) entries_out;
+  assert (List.for_all2 (fun e1 e2 -> equal_entry e1 e2) entries_in entries_out);
   Sys.remove filename

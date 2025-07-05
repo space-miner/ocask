@@ -84,23 +84,3 @@ let entries_of_bytes bytes =
   aux bytes 0 []
 
 let entries_of_file filename = bytes_of_file filename |> entries_of_bytes
-
-let print_entry entry =
-  Printf.printf
-    "{\n\
-     \ttimestamp: %Ld,\n\
-     \tkey_size: %ld,\n\
-     \tvalue_size: %ld,\n\
-     \tkey: %s,\n\
-     \tvalue: %s,\n\
-     },\n"
-    entry.timestamp entry.key_size entry.value_size
-    (String.of_bytes entry.key)
-    (String.of_bytes entry.value)
-
-let equal e1 e2 =
-  Int64.equal e1.timestamp e2.timestamp
-  && Int32.equal e1.key_size e2.key_size
-  && Int32.equal e1.value_size e2.value_size
-  && Bytes.equal e1.key e2.key
-  && Bytes.equal e1.value e2.value

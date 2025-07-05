@@ -1,6 +1,7 @@
 (library
  (name data_file)
  (libraries bytes unix)
+ (preprocess (pps ppx_deriving.show ppx_deriving.eq))
  (foreign_stubs
   (language c)
   (names clock_time)))
