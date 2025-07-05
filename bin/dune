@@ -1,11 +1,5 @@
 (executable
  (public_name ocask)
  (name main)
- (flags
-  (-w -69)
-  (-w -26))
- (libraries ocask unix)
- (foreign_stubs
-  (language c)
-  (names clock_time)
-  (flags :standard -lrt)))
+ (flags (-w -32-27))
+ (libraries data_file key_dir))

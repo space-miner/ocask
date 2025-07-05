@@ -1,0 +1,6 @@
+(library
+ (name data_file)
+ (libraries bytes unix)
+ (foreign_stubs
+  (language c)
+  (names clock_time)))
