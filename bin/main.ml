@@ -98,6 +98,13 @@ module DataFile = struct
       entry.timestamp entry.key_size entry.value_size
       (String.of_bytes entry.key)
       (String.of_bytes entry.value)
+
+  let equal e1 e2 =
+    Int64.equal e1.timestamp e2.timestamp
+    && Int32.equal e1.key_size e2.key_size
+    && Int32.equal e1.value_size e2.value_size
+    && Bytes.equal e1.key e2.key
+    && Bytes.equal e1.value e2.value
 end
 
 module DB = struct
@@ -129,8 +136,10 @@ let () =
   (* make a file -- e.g. active.log *)
   let filename = "active.log" in
   (* write entries to the file in some order*)
-  let entries = [ entry1 (); entry3 (); entry1 (); entry2 (); entry2 () ] in
-  List.iter (fun entry -> write_entry filename entry) entries;
+  let entries_in = [ entry1 (); entry3 (); entry1 (); entry2 (); entry2 () ] in
+  List.iter (fun entry -> write_entry filename entry) entries_in;
   (* decode file and check if you get the correct entries back*)
-  entries_of_file filename |> List.rev
-  |> List.iter (fun entry -> print_entry entry)
+  let entries_out = entries_of_file filename |> List.rev in
+  List.iter (fun entry -> print_entry entry) entries_out;
+  assert (List.for_all2 (fun e1 e2 -> equal e1 e2) entries_in entries_out);
+  Sys.remove filename
