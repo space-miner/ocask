@@ -84,3 +84,11 @@ let entries_of_bytes bytes =
   aux bytes 0 []
 
 let entries_of_file filename = bytes_of_file filename |> entries_of_bytes
+
+let%test "serialization roundtrip preserves data" =
+  let key = Bytes.of_string "hello" in
+  let value = Bytes.of_string "world" in
+  let entry = make_entry key value in
+  let serialized = bytes_of_entry entry in
+  let deserialized = List.hd (entries_of_bytes serialized) in
+  equal_entry entry deserialized

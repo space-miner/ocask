@@ -1,7 +1,0 @@
-(library
- (name ocask_lib)
- (foreign_stubs
-  (language c)
-  (names clock_time))
- (modules data_file key_dir)
- (libraries bytes unix))
