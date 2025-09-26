@@ -1,6 +1,8 @@
 (executable
  (public_name ocask)
  (name main)
- (flags (-w -32-27))
- (preprocess (pps ppx_deriving.show ppx_deriving.eq))
- (libraries data_file key_dir))
+ (flags
+  (-w -32-27))
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.eq))
+ (libraries data_file key_dir unix))

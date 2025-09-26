@@ -1,28 +1,123 @@
 module DB = struct
-  (* lets start with this for now *)
-  type handle = { keydir : Key_dir.t; dir_name : string }
+  type handle = {
+    dir_name : string;
+    keydir : Key_dir.t;
+    mutable active_file_id : int;
+    mutable current_pos : int32;
+    mutable active_fd : Unix.file_descr option;
+  }
 
-  let make_datastore dir_name =
-    (* if directory doesn't exist *)
-    (* create directory and create active.log file *)
-    (* otherwise reconstruct keydir by reading the *)
-    (* datafiles in order and ending with active.lgo *)
-    (* create and return handle *)
-    failwith "todo"
+  let log_filename id = Printf.sprintf "%04d.log" id
+  let max_file_size = 10_000_000
+
+  let init_datastore dir_name =
+    if not (Sys.file_exists dir_name) then (
+      (* need execute permissions otherwise it can't create active.log for some reason ?? *)
+      Unix.mkdir dir_name 0o755;
+      let active_log = Filename.concat dir_name "active.log" in
+      let fd = Unix.openfile active_log [ O_WRONLY; O_CREAT; O_APPEND ] 0o644 in
+      Unix.close fd)
+    else Unix.chmod dir_name 0o755
+
+  let rotate_active_log handle =
+    (* rename active.log to the appropriate archive name *)
+    let archive_active_log handle =
+      let active_log = Filename.concat handle.dir_name "active.log" in
+      let archive_log =
+        Filename.concat handle.dir_name (log_filename handle.active_file_id)
+      in
+      if Sys.file_exists active_log then Sys.rename active_log archive_log
+    in
+    (* create new active.log file *)
+    let create_active_log handle =
+      let active_log = Filename.concat handle.dir_name "active.log" in
+      let fd = Unix.openfile active_log [ O_WRONLY; O_CREAT; O_APPEND ] 0o644 in
+      handle.active_fd <- Some fd;
+      handle.active_file_id <- handle.active_file_id + 1;
+      handle.current_pos <- 0l
+    in
+    archive_active_log handle;
+    create_active_log handle
+
+  (* create handle from dir_name *)
+  let get_handle dir_name =
+    let log_files =
+      if Sys.file_exists dir_name then
+        Sys.readdir dir_name |> Array.to_list
+        |> List.filter (fun file -> Filename.extension file = ".log")
+      else []
+    in
+    let active_file_id = List.length log_files in
+    let keydir = Key_dir.make () in
+    (* TODO: rebuild from hints *)
+    let current_pos =
+      let active_log = Filename.concat dir_name "active.log" in
+      if Sys.file_exists active_log then
+        (Unix.stat active_log).st_size |> Int32.of_int
+      else 0l
+    in
+    let active_fd =
+      if Sys.file_exists (Filename.concat dir_name "active.log") then
+        Some
+          (Unix.openfile
+             (Filename.concat dir_name "active.log")
+             [ O_WRONLY; O_APPEND ] 0o644)
+      else None
+    in
+    { keydir; dir_name; active_file_id; current_pos; active_fd }
 
   let get handle key =
-    (* look up the key in keydir and *)
-    (* use the value to figure out which datafile to read from *)
-    (* get data from the datafile *)
-    failwith "todo"
+    try
+      let keydir_entry = Hashtbl.find handle.keydir key in
+      let datafile =
+        if keydir_entry.file_id = handle.active_file_id then
+          Filename.concat handle.dir_name "active.log"
+        else Filename.concat handle.dir_name (log_filename keydir_entry.file_id)
+      in
+      (* read the value from the data file at the specified position *)
+      let fd = Unix.openfile datafile [ O_RDONLY ] 0o644 in
+      let _ = Unix.lseek fd (Int32.to_int keydir_entry.value_pos) SEEK_SET in
+      let value = Bytes.create (Int32.to_int keydir_entry.value_size) in
+      let _ = Unix.read fd value 0 (Int32.to_int keydir_entry.value_size) in
+      Unix.close fd;
+      Some value
+    with Not_found -> None
+
+  let append_entry_to_log handle (entry : Data_file.entry) =
+    let entry_size =
+      8 + 4 + 4 + Bytes.length entry.key + Bytes.length entry.value
+    in
+    (* check if we need to rotate the active file *)
+    let active_log = Filename.concat handle.dir_name "active.log" in
+    let current_file_size =
+      if Sys.file_exists active_log then (Unix.stat active_log).st_size else 0
+    in
+    (* archive active log by renaming the current active log and creating a new one *)
+    if current_file_size + entry_size > max_file_size then
+      rotate_active_log handle;
+    (* write to active log *)
+    Data_file.write_entry active_log entry;
+    (* update keydir *)
+    let value_pos =
+      8 + 4 + 4 + Bytes.length entry.key + Int32.to_int handle.current_pos
+      |> Int32.of_int
+    in
+    let keydir_entry =
+      Key_dir.make_entry handle.active_file_id entry.value_size value_pos
+        entry.timestamp
+    in
+    Hashtbl.replace handle.keydir entry.key keydir_entry;
+    (* update position in file *)
+    handle.current_pos <- Int32.add handle.current_pos (Int32.of_int entry_size)
 
   let put handle key value =
-    (* check size of active.log *)
-    (* if there's room create a new datafile entry and append to active.log *)
-    (* otherwise figure out the correct id to rename/copy active.log to *)
-    failwith "todo"
+    let entry = Data_file.make_entry key value in
+    append_entry_to_log handle entry
 
-  let delete handle key = failwith "todo"
+  let delete handle key =
+    let tombstone_entry = Data_file.make_tombstone_entry key in
+    append_entry_to_log handle tombstone_entry
+
   let list_keys handle = failwith "todo"
   let fold handle func acc = failwith "todo"
   let merge dir_name = failwith "todo"
@@ -31,26 +126,25 @@ module DB = struct
 end
 
 let () =
-  let open Data_file in
-  (* make entry1 *)
-  let key_bytes = "hello" |> Bytes.of_string in
-  let value_bytes = "world" |> Bytes.of_string in
-  let entry1 () = make_entry key_bytes value_bytes in
-  (* make entry2 *)
-  let key_bytes = "horse" |> Bytes.of_string in
-  let value_bytes = "shoecrab" |> Bytes.of_string in
-  let entry2 () = make_entry key_bytes value_bytes in
-  (* make entry3 *)
-  let key_bytes = "catfish" |> Bytes.of_string in
-  let value_bytes = "shoe" |> Bytes.of_string in
-  let entry3 () = make_entry key_bytes value_bytes in
-  (* make a file -- e.g. active.log *)
-  let filename = "active.log" in
-  (* write entries to the file in some order*)
-  let entries_in = [ entry1 (); entry3 (); entry1 (); entry2 (); entry2 () ] in
-  List.iter (fun entry -> write_entry filename entry) entries_in;
-  (* decode file and check if you get the correct entries back*)
-  let entries_out = entries_of_file filename |> List.rev in
-  List.iter (fun entry -> Printf.printf "%s\n" (show_entry entry)) entries_out;
-  assert (List.for_all2 (fun e1 e2 -> equal_entry e1 e2) entries_in entries_out);
-  Sys.remove filename
+  let test_dir = "test_db" in
+  DB.init_datastore test_dir;
+  let handle = DB.get_handle test_dir in
+
+  let key1 = Bytes.of_string "hello" in
+  let value1 = Bytes.of_string "world" in
+  DB.put handle key1 value1;
+
+  let key2 = Bytes.of_string "foo" in
+  let value2 = Bytes.of_string "bar" in
+  DB.put handle key2 value2;
+
+  (* create large value that won't fit in current active.log *)
+  (* should rotate files -- archive to 0001.log and create new active.log *)
+  let key3 = Bytes.of_string "garbage" in
+  let value3 = Bytes.create 10_000_000 in
+  Bytes.fill value3 0 (Bytes.length value3) '@';
+  DB.put handle key3 value3;
+
+  let key4 = Bytes.of_string "tom" in
+  let value4 = Bytes.of_string "atos" in
+  DB.put handle key4 value4

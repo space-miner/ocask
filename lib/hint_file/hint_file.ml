@@ -1,33 +1,11 @@
-external clock_gettime_ns : unit -> int64 = "clock_gettime_ocaml"
-
-(* ignore crc for now *)
 type entry = {
   timestamp : int64;
   key_size : int32;
   value_size : int32;
+  value_pos : int32;
   key : bytes;
-  value : bytes;
 }
 [@@deriving show, eq]
-
-let make_entry key value =
-  {
-    timestamp = clock_gettime_ns ();
-    key_size = Bytes.length key |> Int32.of_int;
-    value_size = Bytes.length value |> Int32.of_int;
-    key;
-    value;
-  }
-
-(* tombstone by set timestamp to 0 and value to be empty *)
-let make_tombstone_entry key =
-  {
-    timestamp = 0L;
-    key_size = Bytes.length key |> Int32.of_int;
-    value_size = 0l;
-    key;
-    value = Bytes.empty;
-  }
 
 let int32_to_bytes_le i32 =
   let bytes = Bytes.create 4 in
@@ -45,10 +23,11 @@ let bytes_of_entry entry =
       int64_to_bytes_le entry.timestamp;
       int32_to_bytes_le entry.key_size;
       int32_to_bytes_le entry.value_size;
+      int32_to_bytes_le entry.value_pos;
       entry.key;
-      entry.value;
     ]
 
+(* everything below htis line was taken form data_file, so needs modification *)
 let write_entry filename entry =
   let fd = Unix.openfile filename [ O_WRONLY; O_CREAT; O_APPEND ] 0o644 in
   let bytes = bytes_of_entry entry in
