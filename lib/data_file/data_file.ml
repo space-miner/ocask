@@ -1,5 +1,3 @@
-external clock_gettime_ns : unit -> int64 = "clock_gettime_ocaml"
-
 (* ignore crc for now *)
 type entry = {
   timestamp : int64;
@@ -10,23 +8,13 @@ type entry = {
 }
 [@@deriving show, eq]
 
-let make_entry key value =
+let make_entry key value timestamp =
   {
-    timestamp = clock_gettime_ns ();
+    timestamp;
     key_size = Bytes.length key |> Int32.of_int;
     value_size = Bytes.length value |> Int32.of_int;
     key;
     value;
-  }
-
-(* tombstone by set timestamp to 0 and value to be empty *)
-let make_tombstone_entry key =
-  {
-    timestamp = 0L;
-    key_size = Bytes.length key |> Int32.of_int;
-    value_size = 0l;
-    key;
-    value = Bytes.empty;
   }
 
 let int32_to_bytes_le i32 =
@@ -88,9 +76,10 @@ let entries_of_bytes bytes =
 let entries_of_file filename = file_as_bytes filename |> entries_of_bytes
 
 let%test "serialization roundtrip preserves data" =
+  let timestamp = C_utils.clock_gettime_ns () in
   let key = Bytes.of_string "hello" in
   let value = Bytes.of_string "world" in
-  let entry = make_entry key value in
+  let entry = make_entry key value timestamp in
   let serialized = bytes_of_entry entry in
   let deserialized = List.hd (entries_of_bytes serialized) in
   equal_entry entry deserialized

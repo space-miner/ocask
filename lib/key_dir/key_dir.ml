@@ -13,5 +13,7 @@ let make_entry file_id value_size value_pos timestamp =
 
 let make () = Hashtbl.create 100
 let clear t = Hashtbl.reset t
-let list_keys t = Hashtbl.to_seq_keys t |> List.of_seq
+let list_keys t = t |> Hashtbl.to_seq_keys |> List.of_seq
 let fold = Hashtbl.fold
+let add = Hashtbl.replace
+let find = Hashtbl.find

@@ -1,0 +1,5 @@
+(library
+ (name db)
+ (flags
+  (-w -32-27))
+ (libraries unix data_file key_dir c_utils))

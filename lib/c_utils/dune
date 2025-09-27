@@ -1,0 +1,6 @@
+(library
+ (name c_utils)
+ (foreign_stubs
+  (language c)
+  (names clock_time))
+ (libraries unix))
