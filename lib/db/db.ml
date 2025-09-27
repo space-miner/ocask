@@ -37,7 +37,7 @@ let rotate_active_log handle =
     let active_log = Filename.concat handle.dir_name "active.log" in
     let fd = Unix.openfile active_log [ O_WRONLY; O_CREAT; O_APPEND ] 0o644 in
     handle.active_fd <- Some fd;
-    handle.active_file_id <- handle.active_file_id + 1;
+    handle.active_file_id <- handle.active_file_id + 1
   in
   archive_active_log handle;
   create_active_log handle
@@ -54,8 +54,11 @@ let get_handle dir_name =
   let keydir = Key_dir.make () in
   (* TODO: rebuild from hints *)
   let active_log = Filename.concat dir_name "active.log" in
-  let active_fd = if Sys.file_exists active_log then
-    Some (Unix.openfile active_log [ O_WRONLY; O_APPEND ] 0o644) else None in
+  let active_fd =
+    if Sys.file_exists active_log then
+      Some (Unix.openfile active_log [ O_WRONLY; O_APPEND ] 0o644)
+    else None
+  in
   { keydir; dir_name; active_file_id; active_fd }
 
 let get handle key =
@@ -78,23 +81,22 @@ let get handle key =
 let put_aux handle key value timestamp =
   let entry = Data_file.make_entry key value timestamp in
   (* check if we need to rotate the active file *)
-  let entry_size =
-    8 + 4 + 4 + Bytes.length key + Bytes.length value
-  in
-  let current_pos = match handle.active_fd with
+  let entry_size = 8 + 4 + 4 + Bytes.length key + Bytes.length value in
+  let current_pos =
+    match handle.active_fd with
     | Some fd -> Unix.lseek fd 0 Unix.SEEK_END
     | None -> 0
   in
   (* archive active log by renaming the current active log and creating a new one *)
-  if current_pos + entry_size > max_file_size then
-    rotate_active_log handle;
+  if current_pos + entry_size > max_file_size then rotate_active_log handle;
   (* write to active log *)
   let active_log = Filename.concat handle.dir_name "active.log" in
   Data_file.write_entry active_log entry;
   (* update keydir *)
   let value_pos = 8 + 4 + 4 + Bytes.length key + current_pos |> Int32.of_int in
   let keydir_entry =
-    Key_dir.make_entry handle.active_file_id entry.value_size value_pos entry.timestamp
+    Key_dir.make_entry handle.active_file_id entry.value_size value_pos
+      entry.timestamp
   in
   Key_dir.add handle.keydir entry.key keydir_entry
 
@@ -106,6 +108,7 @@ let delete handle key =
   (* tombstone by set timestamp to 0 and value to be empty *)
   put_aux handle key Bytes.empty 0L
 
+(* this gives all keys i never filtered out tombstones *)
 let list_keys handle = Key_dir.list_keys handle.keydir
 let fold handle func acc = Key_dir.fold func handle.keydir acc
 let merge dir_name = failwith "todo"
