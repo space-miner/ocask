@@ -26,7 +26,13 @@ module DB = struct
       let archive_log =
         Filename.concat handle.dir_name (log_filename handle.active_file_id)
       in
-      if Sys.file_exists active_log then Sys.rename active_log archive_log
+      if Sys.file_exists active_log then Sys.rename active_log archive_log;
+      (* close current fd *)
+      match handle.active_fd with
+      | Some fd ->
+          Unix.close fd;
+          handle.active_fd <- None
+      | None -> ()
     in
     (* create new active.log file *)
     let create_active_log handle =
@@ -50,21 +56,14 @@ module DB = struct
     let active_file_id = List.length log_files in
     let keydir = Key_dir.make () in
     (* TODO: rebuild from hints *)
-    let current_pos =
-      let active_log = Filename.concat dir_name "active.log" in
-      if Sys.file_exists active_log then
-        (Unix.stat active_log).st_size |> Int32.of_int
-      else 0l
-    in
-    let active_fd =
-      if Sys.file_exists (Filename.concat dir_name "active.log") then
-        Some
-          (Unix.openfile
-             (Filename.concat dir_name "active.log")
-             [ O_WRONLY; O_APPEND ] 0o644)
-      else None
-    in
-    { keydir; dir_name; active_file_id; current_pos; active_fd }
+    let active_log = Filename.concat dir_name "active.log" in
+    try
+      let current_pos = (Unix.stat active_log).st_size |> Int32.of_int in
+      let active_fd =
+        Some (Unix.openfile active_log [ O_WRONLY; O_APPEND ] 0o644)
+      in
+      { keydir; dir_name; active_file_id; current_pos; active_fd }
+    with _ -> failwith "failed to open active.log"
 
   let get handle key =
     try
@@ -118,11 +117,22 @@ module DB = struct
     let tombstone_entry = Data_file.make_tombstone_entry key in
     append_entry_to_log handle tombstone_entry
 
-  let list_keys handle = failwith "todo"
-  let fold handle func acc = failwith "todo"
+  let list_keys handle = Key_dir.list_keys handle.keydir
+  let fold handle func acc = Key_dir.fold func handle.keydir acc
   let merge dir_name = failwith "todo"
-  let sync handle = failwith "todo"
-  let close handle = failwith "todo"
+
+  let sync handle =
+    match handle.active_fd with Some fd -> Unix.fsync fd | None -> ()
+
+  let close handle =
+    let _ =
+      match handle.active_fd with
+      | Some fd ->
+          sync handle;
+          Unix.close fd
+      | None -> ()
+    in
+    Key_dir.clear handle.keydir
 end
 
 let () =
