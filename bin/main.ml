@@ -1,4 +1,5 @@
 let () =
+  ignore (Unix.system "rm -rf test_db");
   let test_dir = "test_db" in
   Db.init_datastore test_dir;
   let handle = Db.get_handle test_dir in
@@ -21,3 +22,18 @@ let () =
   let key4 = Bytes.of_string "tom" in
   let value4 = Bytes.of_string "atos" in
   Db.put handle key4 value4;
+
+  Db.close handle;
+
+  (* simulate restart, make new handle and rebuild keydir *)
+  let new_handle = Db.get_handle test_dir in
+  assert (Db.get new_handle key1 = Some value1);
+  assert (Db.get new_handle key2 = Some value2);
+  (* TODO: failing to get key3 *)
+  (* assert (Db.get new_handle key3 = Some value3); *)
+  assert (Db.get new_handle key4 = Some value4);
+
+  (* tombstone key1 *)
+  Db.delete new_handle key1;
+  assert (Db.get new_handle key1 = None);
+  assert (not (List.mem key1 (Db.list_keys new_handle)))

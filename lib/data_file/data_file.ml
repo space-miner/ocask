@@ -6,7 +6,7 @@ type entry = {
   key : bytes;
   value : bytes;
 }
-[@@deriving show, eq]
+[@@deriving show, eq, fields]
 
 let make_entry key value timestamp =
   {
@@ -37,10 +37,33 @@ let bytes_of_entry entry =
       entry.value;
     ]
 
+(* write may not write all bytes, so loop till the whole buffer is written *)
+let write_all fd buf =
+  let len = Bytes.length buf in
+  let rec aux off =
+    if off < len then (
+      let written = Unix.single_write fd buf off (len - off) in
+      if written = 0 then failwith "write returned 0 bytes";
+      aux (off + written))
+  in
+  aux 0
+
+(* same as write, read may not read everything. loop till everything is read *)
+(* and return number of bytes read *)
+let read_all fd buf =
+  let len = Bytes.length buf in
+  let rec aux off =
+    if off >= len then off
+    else
+      let read = Unix.read fd buf off (len - off) in
+      if read = 0 then off else aux (off + read)
+  in
+  aux 0
+
 let write_entry filename entry =
   let fd = Unix.openfile filename [ O_WRONLY; O_CREAT; O_APPEND ] 0o644 in
   let bytes = bytes_of_entry entry in
-  ignore (Unix.single_write fd bytes 0 (Bytes.length bytes));
+  write_all fd bytes;
   Unix.fsync fd;
   Unix.close fd
 
@@ -48,31 +71,31 @@ let file_as_bytes filename =
   let file_size = (Unix.stat filename).st_size in
   let fd = Unix.openfile filename [ O_RDONLY ] 0o644 in
   let bytes = Bytes.create file_size in
-  ignore (Unix.read fd bytes 0 file_size);
+  let read = read_all fd bytes in
   Unix.close fd;
-  bytes
+  Bytes.sub bytes 0 read
 
-let entries_of_bytes bytes =
+let offset_entries_of_bytes bytes =
   let rec aux bytes ix acc =
-    try
-      let timestamp_offset = 0 in
-      let key_size_offset = 8 in
-      let value_size_offset = 12 in
-      let key_offset = 16 in
-      let timestamp = Bytes.get_int64_le bytes (ix + timestamp_offset) in
-      let key_size = Bytes.get_int32_le bytes (ix + key_size_offset) in
-      let value_size = Bytes.get_int32_le bytes (ix + value_size_offset) in
-      let key = Bytes.sub bytes (ix + key_offset) (Int32.to_int key_size) in
-      let value_offset = key_offset + Int32.to_int key_size in
-      let value =
-        Bytes.sub bytes (ix + value_offset) (Int32.to_int value_size)
-      in
-      let next_ix = ix + value_offset + Int32.to_int value_size in
-      aux bytes next_ix ({ timestamp; key_size; value_size; key; value } :: acc)
-    with _ -> acc
+    if ix + 16 > Bytes.length bytes then acc
+    else
+      let timestamp = Bytes.get_int64_le bytes ix in
+      let key_size = Bytes.get_int32_le bytes (ix + 8) in
+      let value_size = Bytes.get_int32_le bytes (ix + 12) in
+      let entry_len = 16 + Int32.to_int key_size + Int32.to_int value_size in
+      if ix + entry_len > Bytes.length bytes then acc
+      else
+        let key = Bytes.sub bytes (ix + 16) (Int32.to_int key_size) in
+        let value =
+          Bytes.sub bytes
+            (ix + 16 + Int32.to_int key_size)
+            (Int32.to_int value_size)
+        in
+        aux bytes (ix + entry_len) ((ix, make_entry key value timestamp) :: acc)
   in
-  aux bytes 0 []
+  aux bytes 0 [] |> List.rev
 
+let entries_of_bytes bytes = bytes |> offset_entries_of_bytes |> List.map snd
 let entries_of_file filename = file_as_bytes filename |> entries_of_bytes
 
 let%test "serialization roundtrip preserves data" =

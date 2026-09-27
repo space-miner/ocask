@@ -42,17 +42,64 @@ let rotate_active_log handle =
   archive_active_log handle;
   create_active_log handle
 
+let archived_ids dir_name =
+  Sys.readdir dir_name |> Array.to_list
+  |> List.filter_map (fun file ->
+      match Filename.extension file with
+      | ".log" when file <> "active.log" -> (
+          try Some (int_of_string (Filename.chop_extension file))
+          with _ -> None)
+      | _ -> None)
+
+(* rebuild the keydir by reading data files in ascending id order *)
+let rebuild_keydir keydir dir_name active_file_id =
+  archived_ids dir_name |> List.sort compare
+  |> List.iter (fun id ->
+      let offset_entries =
+        Data_file.offset_entries_of_bytes
+          (Data_file.file_as_bytes (Filename.concat dir_name (log_filename id)))
+      in
+      List.iter
+        (fun (offset, entry) ->
+          let key = Data_file.key entry in
+          let value_size = Data_file.value_size entry in
+          let value_pos =
+            Int32.of_int (16 + Int32.to_int (Data_file.key_size entry) + offset)
+          in
+          let timestamp = Data_file.timestamp entry in
+          let keydir_entry =
+            Key_dir.make_entry id value_size value_pos timestamp
+          in
+          Key_dir.add keydir key keydir_entry)
+        offset_entries);
+  let active_log = Filename.concat dir_name "active.log" in
+  let offset_entries_active_log =
+    Data_file.offset_entries_of_bytes (Data_file.file_as_bytes active_log)
+  in
+  List.iter
+    (fun (offset, entry) ->
+      let key = Data_file.key entry in
+      let value_size = Data_file.value_size entry in
+      let value_pos =
+        Int32.of_int (16 + Int32.to_int (Data_file.key_size entry) + offset)
+      in
+      let timestamp = Data_file.timestamp entry in
+      let keydir_entry =
+        Key_dir.make_entry active_file_id value_size value_pos timestamp
+      in
+      Key_dir.add keydir key keydir_entry)
+    offset_entries_active_log
+
 (* create handle from dir_name *)
 let get_handle dir_name =
-  let log_files =
-    if Sys.file_exists dir_name then
-      Sys.readdir dir_name |> Array.to_list
-      |> List.filter (fun file -> Filename.extension file = ".log")
-    else []
+  let active_file_id =
+    match archived_ids dir_name with
+    | [] -> 1
+    | ids -> List.fold_left max 0 ids + 1
   in
-  let active_file_id = List.length log_files in
   let keydir = Key_dir.make () in
-  (* TODO: rebuild from hints *)
+  (* rebuild from hints *)
+  if Sys.file_exists dir_name then rebuild_keydir keydir dir_name active_file_id;
   let active_log = Filename.concat dir_name "active.log" in
   let active_fd =
     if Sys.file_exists active_log then
@@ -64,18 +111,24 @@ let get_handle dir_name =
 let get handle key =
   try
     let keydir_entry = Key_dir.find handle.keydir key in
-    let datafile =
-      if keydir_entry.file_id = handle.active_file_id then
-        Filename.concat handle.dir_name "active.log"
-      else Filename.concat handle.dir_name (log_filename keydir_entry.file_id)
-    in
-    (* read the value from the data file at the specified position *)
-    let fd = Unix.openfile datafile [ O_RDONLY ] 0o644 in
-    ignore (Unix.lseek fd (Int32.to_int keydir_entry.value_pos) SEEK_SET);
-    let value = Bytes.create (Int32.to_int keydir_entry.value_size) in
-    ignore (Unix.read fd value 0 (Int32.to_int keydir_entry.value_size));
-    Unix.close fd;
-    Some value
+    (* tombstoned *)
+    if Key_dir.is_tombstone keydir_entry then None
+    else
+      let datafile =
+        let file_id = Key_dir.file_id keydir_entry in
+        if file_id = handle.active_file_id then
+          Filename.concat handle.dir_name "active.log"
+        else Filename.concat handle.dir_name (log_filename file_id)
+      in
+      (* read the value from the data file at the specified position *)
+      let fd = Unix.openfile datafile [ O_RDONLY ] 0o644 in
+      let value_pos = Key_dir.value_pos keydir_entry in
+      let value_size = Key_dir.value_size keydir_entry in
+      let value = Bytes.create (Int32.to_int value_size) in
+      ignore (Unix.lseek fd (Int32.to_int value_pos) SEEK_SET);
+      ignore (Unix.read fd value 0 (Int32.to_int value_size));
+      Unix.close fd;
+      Some value
   with Not_found -> None
 
 let put_aux handle key value timestamp =
@@ -89,6 +142,12 @@ let put_aux handle key value timestamp =
   in
   (* archive active log by renaming the current active log and creating a new one *)
   if current_pos + entry_size > max_file_size then rotate_active_log handle;
+  (* update current_pos to 0 when rotate *)
+  let current_pos =
+    match handle.active_fd with
+    | Some fd -> Unix.lseek fd 0 Unix.SEEK_END
+    | None -> 0
+  in
   (* write to active log *)
   let active_log = Filename.concat handle.dir_name "active.log" in
   Data_file.write_entry active_log entry;
@@ -109,7 +168,12 @@ let delete handle key =
   put_aux handle key Bytes.empty 0L
 
 (* this gives all keys i never filtered out tombstones *)
-let list_keys handle = Key_dir.list_keys handle.keydir
+let list_keys handle =
+  Key_dir.fold
+    (fun key entry acc ->
+      if Key_dir.is_tombstone entry then acc else key :: acc)
+    handle.keydir []
+
 let fold handle func acc = Key_dir.fold func handle.keydir acc
 let merge dir_name = failwith "todo"
 

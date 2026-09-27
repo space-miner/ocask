@@ -1,3 +1,5 @@
 (library
  (name key_dir)
- (libraries unix bytes data_file))
+ (libraries unix bytes data_file)
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.eq ppx_fields_conv ppx_inline_test)))
