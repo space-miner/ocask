@@ -1,5 +1,6 @@
 type handle
 
+val max_file_size : int
 val init_datastore : string -> unit
 (* initialize new database directory *)
 

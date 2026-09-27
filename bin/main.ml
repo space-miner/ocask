@@ -15,7 +15,7 @@ let () =
   (* create large value that won't fit in current active.log *)
   (* should rotate files -- archive to 0001.log and create new active.log *)
   let key3 = Bytes.of_string "garbage" in
-  let value3 = Bytes.create 10_000_000 in
+  let value3 = Bytes.create Db.max_file_size in
   Bytes.fill value3 0 (Bytes.length value3) '@';
   Db.put handle key3 value3;
 
@@ -29,8 +29,8 @@ let () =
   let new_handle = Db.get_handle test_dir in
   assert (Db.get new_handle key1 = Some value1);
   assert (Db.get new_handle key2 = Some value2);
-  (* TODO: failing to get key3 *)
-  (* assert (Db.get new_handle key3 = Some value3); *)
+  (* TODO: failing to get key3 when Db.max_file_size is 10MB *)
+  assert (Db.get new_handle key3 = Some value3);
   assert (Db.get new_handle key4 = Some value4);
 
   (* tombstone key1 *)

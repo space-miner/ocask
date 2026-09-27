@@ -6,7 +6,9 @@ type handle = {
 }
 
 let log_filename id = Printf.sprintf "%04d.log" id
-let max_file_size = 10_000_000
+
+(* let max_file_size = 10_000_000 *)
+let max_file_size = 1024
 
 let init_datastore dir_name =
   if not (Sys.file_exists dir_name) then (
